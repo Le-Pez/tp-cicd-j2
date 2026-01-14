@@ -34,7 +34,7 @@
       ansible.builtin.git:
         repo: 'https://github.com/gaeldb/to-do-list.git'
         dest: "{{ project_path }}"
-        version: main
+        version: "{{ git_version | default('main') }}"
         force: yes
       become_user: vagrant
 
