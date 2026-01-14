@@ -1,0 +1,22 @@
+[Unit]
+Description=Gunicorn instance to serve ToDo List
+After=network.target
+
+[Service]
+# L'utilisateur Linux qui lance l'app
+User=vagrant
+Group=vagrant
+
+# Le dossier racine du projet
+WorkingDirectory={{ project_path }}
+
+# La commande de lancement
+# 1. On utilise le gunicorn du venv
+# 2. On pointe vers 'todo.wsgi' (car ton dossier s'appelle 'todo')
+ExecStart={{ project_path }}/venv/bin/gunicorn todo.wsgi:application --bind 0.0.0.0:8000
+
+# Redémarrer automatiquement si ça plante
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

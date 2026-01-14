@@ -1,0 +1,102 @@
+---
+- name: Déploiement de l'application ToDo List
+  hosts: my_infra
+  become: yes
+  
+  vars:
+    # Le chemin est maintenant dans le dossier utilisateur
+    project_path: /home/vagrant/todolist
+
+  tasks:
+    # 1. Installation des paquets système
+    - name: Installer les prérequis système (Git, Python, Venv)
+      ansible.builtin.apt:
+        name:
+          - git
+          - python3
+          - python3-pip
+          - python3-venv
+          - virtualenv
+        state: present
+        update_cache: yes
+
+    # 2. Création du dossier
+    - name: Créer le répertoire de destination avec les bons droits
+      ansible.builtin.file:
+        path: "{{ project_path }}"
+        state: directory
+        owner: vagrant
+        group: vagrant
+        mode: '0755'
+
+    # 3. Récupération du code (Git)
+    - name: Récupérer le code source depuis GitHub
+      ansible.builtin.git:
+        repo: 'https://github.com/gaeldb/to-do-list.git'
+        dest: "{{ project_path }}"
+        version: main
+        force: yes
+      become_user: vagrant
+
+    # 4a. CORRECTION : Création explicite du venv avec la commande système
+    # Cela évite les bugs du module pip sur certains systèmes
+    - name: Créer le virtualenv (Force)
+      ansible.builtin.command:
+        cmd: python3 -m venv "{{ project_path }}/venv"
+        creates: "{{ project_path }}/venv/bin/python3"
+      become_user: vagrant
+
+    # 4b. CORRECTION : Installation des paquets DANS le venv existant
+    - name: Installer Django et Gunicorn
+      ansible.builtin.pip:
+        name:
+          - django
+          - gunicorn
+        virtualenv: "{{ project_path }}/venv"
+      become_user: vagrant
+
+    # 5. Configuration du DEBUG (Exercice 12)
+    - name: Configurer le mode DEBUG dans settings.py
+      ansible.builtin.lineinfile:
+        path: "{{ project_path }}/todo/settings.py"
+        regexp: '^DEBUG ='
+        line: "DEBUG = {{ django_debug }}"
+    
+    # Configuration des IP autorisées (ALLOWED_HOSTS)
+    - name: Ajouter l'IP de la machine dans ALLOWED_HOSTS
+      ansible.builtin.lineinfile:
+        path: "{{ project_path }}/todo/settings.py"
+        # On cherche la ligne qui commence par ALLOWED_HOSTS =
+        regexp: '^ALLOWED_HOSTS ='
+        # On la remplace par une liste contenant l'IP de la machine + localhost
+        line: "ALLOWED_HOSTS = ['{{ ansible_host }}', 'localhost', '127.0.0.1']"
+      notify: Redémarrer TodoList
+
+    # 6. Migration de la base de données
+    - name: Initialiser la base de données (Migrate)
+      ansible.builtin.command:
+        cmd: "{{ project_path }}/venv/bin/python3 {{ project_path }}/manage.py migrate"
+      become_user: vagrant
+    
+    # ... (tes tâches précédentes) ...
+
+    # 7. On envoie le fichier de config vers le dossier système de Linux
+    - name: Installer le fichier de service Systemd
+      ansible.builtin.template:
+        src: todolist.service.j2
+        dest: /etc/systemd/system/todolist.service
+      notify: Redémarrer TodoList
+
+    # 8. On demande à Linux de démarrer ce service maintenant et au démarrage
+    - name: Démarrer et activer le service
+      ansible.builtin.systemd:
+        name: todolist
+        state: started
+        enabled: yes
+        daemon_reload: yes # Pour qu'il lise le nouveau fichier
+
+  handlers:
+    - name: Redémarrer TodoList
+      ansible.builtin.systemd:
+        name: todolist
+        state: restarted
